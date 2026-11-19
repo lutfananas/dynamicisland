@@ -19,8 +19,8 @@ Aplikasi Android native (Kotlin, tanpa library tambahan, APK ±100 KB) yang meng
 | **Timer & stopwatch** | Berjalan sebagai *Live Activity*. Bisa jeda, +1 menit, dan berhenti, dengan getaran saat selesai. |
 | **Cahaya keliling** | Ketuk island saat kosong: cahaya berputar mengelilingi sisi luarnya. Warna, mode pelangi, ketebalan, kecepatan, dan jumlah putaran bisa diatur. |
 | **Panel mini apps** | Geser island kosong ke bawah: senter, timer 5 menit, stopwatch, screenshot, kunci layar, edit, dan pengaturan. |
-| **Animasi 120 Hz** | Bentuk island digambar langsung oleh GPU (tanpa hitung ulang tata letak), dengan kurva pegas dan refresh rate tertinggi layar. |
-| **Tampil di layar kunci** | Memakai overlay aksesibilitas, jadi tidak perlu izin "tampil di atas aplikasi lain". |
+| **Animasi 120 Hz** | Bentuk island digambar langsung oleh GPU (tanpa hitung ulang tata letak), membesar dan mengecil tepat dari tengah, dengan kurva pegas dan refresh rate tertinggi layar. |
+| **Tampil di layar kunci** | Notifikasi, musik, timer, dan pengisian daya juga muncul saat ponsel terkunci (bisa dimatikan). Memakai overlay aksesibilitas, jadi tidak perlu izin "tampil di atas aplikasi lain". |
 | **Daftar blokir aplikasi** | Pilih aplikasi mana yang boleh muncul di island. |
 
 ### Gestur

@@ -23,6 +23,8 @@ class IslandSurface(ctx: Context) : FrameLayout(ctx) {
     /** Ruang di sekeliling island untuk efek cahaya. */
     val pad = ctx.dp(10)
 
+    /** Pergeseran horizontal pusat island dari tengah layar (px). */
+    var centerOffset = 0f
     var shapeW = 1f
     var shapeH = 1f
     var radius = 0f
@@ -49,7 +51,7 @@ class IslandSurface(ctx: Context) : FrameLayout(ctx) {
         clipChildren = false
     }
 
-    fun shapeLeft() = (width - shapeW) / 2f
+    fun shapeLeft() = width / 2f + centerOffset - shapeW / 2f
 
     override fun onDraw(canvas: Canvas) {
         val l = shapeLeft()

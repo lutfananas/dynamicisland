@@ -14,6 +14,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.app.KeyguardManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
@@ -79,8 +80,17 @@ class IslandWindow(private val svc: AccessibilityService) {
     private val cRightTxt = TextView(ctx)
     private val cRightViz = VisualizerView(ctx)
     private val expanded = FrameLayout(ctx)
+    // Jendela gambar: selebar layar & tembus sentuhan, tidak pernah bergeser ke samping
+    // sehingga island tidak "melompat" saat ukuran jendela berubah.
     private val lp = WindowManager.LayoutParams()
     private var added = false
+    // Jendela sentuh: tak terlihat, seukuran island, meneruskan sentuhan ke jendela gambar.
+    private val touch = View(ctx)
+    private val touchLp = WindowManager.LayoutParams()
+    private var touchAdded = false
+    private var touchRawX = 0f
+    private var touchRawY = 0f
+    private var locked = false
 
     private var expandedKind: Kind? = null
     private var shownCompact: Kind? = null
@@ -147,6 +157,12 @@ class IslandWindow(private val svc: AccessibilityService) {
         else @Suppress("DEPRECATION") ctx.getSystemService(Vibrator::class.java)
     }
 
+    private val drawFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+        WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+
     private val baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
         WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
@@ -166,14 +182,14 @@ class IslandWindow(private val svc: AccessibilityService) {
         pill.clipToOutline = true
         pill.outlineProvider = object : ViewOutlineProvider() {
             override fun getOutline(view: View, outline: Outline) {
-                val l = (view.width - root.shapeW) / 2f
+                val l = view.width / 2f + root.centerOffset - root.shapeW / 2f
                 outline.setRoundRect(
                     l.roundToInt(), 0, (l + root.shapeW).roundToInt(), root.shapeH.roundToInt(), root.radius,
                 )
             }
         }
         val p = root.pad
-        root.addView(pill, FrameLayout.LayoutParams(-1, -1).apply { setMargins(p, p, p, p) })
+        root.addView(pill, FrameLayout.LayoutParams(-1, -1).apply { topMargin = p })
         setupCompact()
         pill.addView(compact, FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         pill.addView(expanded, FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
@@ -181,25 +197,39 @@ class IslandWindow(private val svc: AccessibilityService) {
         compact.alpha = 0f
         setupGestures()
 
-        lp.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
-        lp.format = PixelFormat.TRANSLUCENT
-        lp.flags = baseFlags
-        lp.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        lp.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30)
+        val cutoutMode = if (Build.VERSION.SDK_INT >= 30)
             WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
         else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-        applyPosition()
+
+        lp.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        lp.format = PixelFormat.TRANSLUCENT
+        lp.flags = drawFlags
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.layoutInDisplayCutoutMode = cutoutMode
+        lp.x = 0
+        lp.width = screenW()
+
+        touchLp.type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        touchLp.format = PixelFormat.TRANSPARENT
+        touchLp.flags = baseFlags
+        touchLp.gravity = Gravity.TOP or Gravity.START
+        touchLp.layoutInDisplayCutoutMode = cutoutMode
+
         val idle = idleGeom()
+        applyPosition()
         setGeom(idle[0], idle[1], idle[2])
-        lp.width = ceil(idle[0]).toInt() + 2 * root.pad
         lp.height = ceil(idle[1]).toInt() + 2 * root.pad
+        setTouchRect(idle[0], idle[1])
         requestHighRefreshRate()
         try {
             wm.addView(root, lp)
             added = true
+            wm.addView(touch, touchLp)
+            touchAdded = true
         } catch (_: Exception) {
             return
         }
+        touch.setOnTouchListener { _, ev -> forwardTouch(ev); true }
 
         registerReceivers()
         setupTorch()
@@ -211,10 +241,15 @@ class IslandWindow(private val svc: AccessibilityService) {
         if (IslandBus.listener != null) IslandBus.listener = null
         try { ctx.unregisterReceiver(battRx) } catch (_: Exception) {}
         try { ctx.unregisterReceiver(ringerRx) } catch (_: Exception) {}
+        try { ctx.unregisterReceiver(screenRx) } catch (_: Exception) {}
         try { cam?.unregisterTorchCallback(torchCb) } catch (_: Exception) {}
         anim?.cancel()
         glowAnim?.cancel()
         h.removeCallbacksAndMessages(null)
+        if (touchAdded) {
+            try { wm.removeView(touch) } catch (_: Exception) {}
+            touchAdded = false
+        }
         if (added) {
             try { wm.removeView(root) } catch (_: Exception) {}
             added = false
@@ -223,7 +258,44 @@ class IslandWindow(private val svc: AccessibilityService) {
 
     fun onConfigChanged(c: Configuration) {
         landscape = c.orientation == Configuration.ORIENTATION_LANDSCAPE
+        lp.width = screenW()
         render()
+    }
+
+    private fun screenW(): Int =
+        if (Build.VERSION.SDK_INT >= 30) wm.currentWindowMetrics.bounds.width()
+        else @Suppress("DEPRECATION") android.util.DisplayMetrics().also { wm.defaultDisplay.getRealMetrics(it) }.widthPixels
+
+    /** Teruskan sentuhan dari jendela sentuh ke tampilan island di jendela gambar. */
+    private fun forwardTouch(ev: MotionEvent) {
+        if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+            val k = expandedKind
+            // Saat membalas, ketukan di keyboard juga terhitung "di luar" — jangan tutup.
+            if (!replying && (k == Kind.PANEL || k == Kind.MEDIA || k == Kind.TIMER)) collapse()
+            return
+        }
+        touchRawX = ev.rawX
+        touchRawY = ev.rawY
+        val e = MotionEvent.obtain(ev)
+        e.offsetLocation((touchLp.x - lp.x).toFloat(), (touchLp.y - lp.y).toFloat())
+        root.dispatchTouchEvent(e)
+        e.recycle()
+    }
+
+    /** Area sentuh = bentuk island (plus panel edit saat mode edit). */
+    private fun setTouchRect(w: Float, hh: Float) {
+        val tw = max(1, ceil(w).toInt())
+        touchLp.width = tw
+        touchLp.height = max(1, ceil(hh).toInt())
+        touchLp.x = (screenW() / 2f + root.centerOffset - tw / 2f).roundToInt()
+        touchLp.y = lp.y + root.pad
+        if (touchAdded) try { wm.updateViewLayout(touch, touchLp) } catch (_: Exception) {}
+    }
+
+    private fun setTouchable(on: Boolean) {
+        touchLp.flags = if (on) touchLp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        else touchLp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (touchAdded) try { wm.updateViewLayout(touch, touchLp) } catch (_: Exception) {}
     }
 
     // ---------------------------------------------------------------- penerima sistem
@@ -261,7 +333,32 @@ class IslandWindow(private val svc: AccessibilityService) {
         }
     }
 
+    /** Pantau layar kunci: island bisa tampil atau disembunyikan di sana. */
+    private val screenRx = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) {
+            updateLocked()
+            if (i.action == Intent.ACTION_SCREEN_ON) root.invalidate()
+        }
+    }
+
+    private fun updateLocked() {
+        val now = ctx.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+        if (now != locked) {
+            locked = now
+            render()
+        }
+    }
+
     private fun registerReceivers() {
+        val sf = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        if (Build.VERSION.SDK_INT >= 33) ctx.registerReceiver(screenRx, sf, Context.RECEIVER_EXPORTED)
+        else ctx.registerReceiver(screenRx, sf)
+        locked = ctx.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+
         val am = ctx.getSystemService(AudioManager::class.java)
         ringerMode = am?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL
         if (Build.VERSION.SDK_INT >= 33) {
@@ -383,9 +480,18 @@ class IslandWindow(private val svc: AccessibilityService) {
         root.invalidate()
     }
 
-    private fun applyPosition() {
-        lp.x = dp(prefs.int(K.OFFSET_X))
-        lp.y = dp(prefs.int(K.OFFSET_Y)) - root.pad
+    private fun applyPosition() = applyOffsets(prefs.int(K.OFFSET_X), prefs.int(K.OFFSET_Y))
+
+    private fun applyOffsets(xDp: Int, yDp: Int) {
+        val off = dpf(xDp)
+        root.centerOffset = off
+        compact.translationX = off
+        expanded.translationX = off
+        toolbar?.translationX = off
+        lp.x = 0
+        lp.y = dp(yDp) - root.pad
+        root.invalidate()
+        pill.invalidateOutline()
     }
 
     /** Minta refresh rate tertinggi layar (mis. 120 Hz) untuk jendela island. */
@@ -418,7 +524,9 @@ class IslandWindow(private val svc: AccessibilityService) {
     }
 
     private fun setWindowSize(w: Float, hh: Float) {
-        val nw = max(1, ceil(w).toInt()) + 2 * root.pad
+        // Lebar selalu selebar layar: hanya tinggi yang berubah (bertumpu di atas),
+        // jadi tidak ada pergeseran horizontal saat jendela diubah ukurannya.
+        val nw = screenW()
         val nh = max(1, ceil(hh).toInt()) + 2 * root.pad
         if (lp.width != nw || lp.height != nh) {
             lp.width = nw
@@ -441,6 +549,7 @@ class IslandWindow(private val svc: AccessibilityService) {
         val grow = if (bounce && growing) 1.06f else 1.01f
         // Jendela dibuat cukup besar selama animasi (sekali saja), lalu dipas di akhir.
         setWindowSize(max(sw, w * grow) + dp(2), max(sh, hh * grow) + dp(2))
+        setTouchRect(w, hh)
         val va = ValueAnimator.ofFloat(0f, 1f)
         anim = va
         va.duration = prefs.int(K.ANIM_MS).toLong()
@@ -473,14 +582,8 @@ class IslandWindow(private val svc: AccessibilityService) {
 
     private fun setVisible(visible: Boolean) {
         root.animate().cancel()
-        if (visible) {
-            root.alpha = 1f
-            lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-        } else {
-            root.animate().alpha(0f).setDuration(200).start()
-            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        }
-        updateWindow()
+        if (visible) root.alpha = 1f else root.animate().alpha(0f).setDuration(200).start()
+        setTouchable(visible)
     }
 
     // ---------------------------------------------------------------- render
@@ -493,9 +596,9 @@ class IslandWindow(private val svc: AccessibilityService) {
             renderEdit()
             return
         }
-        if (landscape && prefs.bool(K.HIDE_LANDSCAPE)) {
+        if ((landscape && prefs.bool(K.HIDE_LANDSCAPE)) || (locked && !prefs.bool(K.LOCKSCREEN))) {
             root.visibility = View.GONE
-            updateWindow()
+            setTouchable(false)
             return
         }
         root.visibility = View.VISIBLE
@@ -665,13 +768,6 @@ class IslandWindow(private val svc: AccessibilityService) {
         pill.setOnTouchListener { _, ev ->
             if (editMode) handleDrag(ev) else gd.onTouchEvent(ev)
             true
-        }
-        root.setOnTouchListener { _, ev ->
-            if (ev.action == MotionEvent.ACTION_OUTSIDE) {
-                val k = expandedKind
-                if (replying || k == Kind.PANEL || k == Kind.MEDIA || k == Kind.TIMER) collapse()
-            }
-            false
         }
     }
 
@@ -1073,7 +1169,6 @@ class IslandWindow(private val svc: AccessibilityService) {
         shownCompact = null
         root.animate().cancel()
         root.alpha = 1f
-        lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         root.strokeColor = accent()
         root.strokeWidth = dpf(2)
         val idle = idleGeom()
@@ -1087,9 +1182,12 @@ class IslandWindow(private val svc: AccessibilityService) {
             View.MeasureSpec.makeMeasureSpec(dp(280), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        lp.width = max(idle[0].roundToInt(), dp(280)) + 2 * root.pad
+        tb.translationX = root.centerOffset
+        lp.width = screenW()
         lp.height = idle[1].roundToInt() + dp(12) + tb.measuredHeight + 2 * root.pad
         updateWindow()
+        setTouchable(true)
+        setTouchRect(max(idle[0], dpf(280)), idle[1] + dp(12) + tb.measuredHeight)
     }
 
     private fun updateEditLabels() {
@@ -1101,18 +1199,20 @@ class IslandWindow(private val svc: AccessibilityService) {
         val d = ctx.resources.displayMetrics.density
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                dragX = ev.rawX; dragY = ev.rawY
+                dragX = touchRawX; dragY = touchRawY
                 startOX = prefs.int(K.OFFSET_X); startOY = prefs.int(K.OFFSET_Y)
                 pendingX = startOX; pendingY = startOY
                 haptic()
             }
             MotionEvent.ACTION_MOVE -> {
                 val maxX = (ctx.resources.displayMetrics.widthPixels / d / 2).toInt()
-                pendingX = (startOX + (ev.rawX - dragX) / d).roundToInt().coerceIn(-maxX, maxX)
-                pendingY = (startOY + (ev.rawY - dragY) / d).roundToInt().coerceIn(0, 300)
-                lp.x = dp(pendingX)
-                lp.y = dp(pendingY) - root.pad
+                pendingX = (startOX + (touchRawX - dragX) / d).roundToInt().coerceIn(-maxX, maxX)
+                pendingY = (startOY + (touchRawY - dragY) / d).roundToInt().coerceIn(0, 300)
+                applyOffsets(pendingX, pendingY)
                 updateWindow()
+                val tb = toolbar
+                val idle = idleGeom()
+                setTouchRect(max(idle[0], dpf(280)), idle[1] + dp(12) + (tb?.height ?: 0))
                 posLabel?.text = "Posisi  X $pendingX · Y $pendingY"
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {

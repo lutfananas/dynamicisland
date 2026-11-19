@@ -347,6 +347,7 @@ class MainActivity : Activity() {
         toggle(c, "Peringatan baterai lemah (20%)", K.LOW_BATT)
         toggle(c, "Indikator mode senyap / getar", K.RINGER)
         toggle(c, "Getaran haptik", K.HAPTICS)
+        toggle(c, "Tampil di layar kunci", K.LOCKSCREEN, "Notifikasi, musik, timer & pengisian daya juga muncul saat ponsel terkunci.")
         toggle(c, "Sembunyikan saat landscape", K.HIDE_LANDSCAPE)
         toggle(c, "Sembunyikan saat tidak ada aktivitas", K.HIDE_IDLE, "Cocok jika kamera ponselmu tidak di tengah.")
     }

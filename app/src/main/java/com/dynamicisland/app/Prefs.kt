@@ -34,6 +34,7 @@ object K {
     const val HAPTICS = "haptics"
     const val HIDE_LANDSCAPE = "hide_landscape"
     const val HIDE_IDLE = "hide_idle"
+    const val LOCKSCREEN = "lockscreen"
 
     // Cahaya saat island kosong diketuk
     const val GLOW_ON = "glow_on"
@@ -83,6 +84,7 @@ object K {
         HAPTICS to true,
         HIDE_LANDSCAPE to true,
         HIDE_IDLE to false,
+        LOCKSCREEN to true,
         GLOW_ON to true,
         GLOW_RAINBOW to false,
     )
