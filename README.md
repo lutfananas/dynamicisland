@@ -28,7 +28,14 @@ Aplikasi Android native (Kotlin, tanpa library tambahan, APK ±100 KB) yang meng
 - **Geser ke bawah**: perluas atau buka panel mini apps.
 - **Geser kiri/kanan** saat musik: lagu berikutnya/sebelumnya.
 
-### Kustomisasi
+### Kustomisasi ukuran, posisi & sudut
+- **Edit langsung di layar** (dari pengaturan atau ikon ✏ di panel mini apps): seret island ke mana saja,
+  lalu atur lebar, tinggi, sudut, sudut saat diperluas, dan lebar saat diperluas dengan tombol −/+
+  (tahan tombol untuk mengubah cepat). Hasilnya langsung terlihat di atas aplikasi apa pun.
+- **Preset bentuk**: iPhone, Kecil, Besar, Titik kamera, Kapsul tipis, Kotak tumpul, Kotak.
+- Setiap slider punya tombol −/+ untuk penyetelan presisi.
+
+### Kustomisasi lain
 Lebar, tinggi, posisi X/Y, kebulatan sudut, lebar mode ringkas dan diperluas, sudut saat diperluas,
 opasitas, warna latar, warna aksen, durasi animasi, efek pegas (bounce), lama notifikasi tampil,
 getaran haptik, sembunyikan saat landscape atau saat tidak ada aktivitas, dan tombol

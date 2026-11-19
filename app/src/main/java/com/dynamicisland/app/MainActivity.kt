@@ -134,7 +134,7 @@ class MainActivity : Activity() {
         upd(prefs.int(key))
         val sb = SeekBar(this).apply {
             this.max = max - min
-            progress = prefs.int(key) - min
+            progress = (prefs.int(key) - min).coerceIn(0, max - min)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar, p: Int, fromUser: Boolean) {
                     if (!fromUser) return
@@ -147,8 +147,30 @@ class MainActivity : Activity() {
                 override fun onStopTrackingTouch(s: SeekBar) {}
             })
         }
-        c.addView(t, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
+        fun step(d: Int) {
+            val v = (prefs.int(key) + d).coerceIn(min, max)
+            prefs.put(key, v)
+            sb.progress = v - min
+            upd(v)
+            changed()
+        }
+        val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        row.addView(t, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(miniButton("−") { step(-1) })
+        row.addView(miniButton("+") { step(1) }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { marginStart = dp(6) })
+        c.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(10) })
         c.addView(sb)
+    }
+
+    private fun miniButton(label: String, onClick: () -> Unit) = TextView(this).apply {
+        text = label
+        textSize = 16f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(Palette.WHITE)
+        background = roundBg(0xFF2C2C34.toInt(), dp(16).toFloat())
+        layoutParams = LinearLayout.LayoutParams(dp(32), dp(32))
+        setOnClickListener { onClick() }
     }
 
     private fun toggle(c: LinearLayout, label: String, key: String, hint: String? = null) {
@@ -228,16 +250,50 @@ class MainActivity : Activity() {
     }
 
     private fun lookCard() {
-        val c = card("Tampilan")
-        slider(c, "Lebar", K.WIDTH, 40, 260, " dp")
-        slider(c, "Tinggi", K.HEIGHT, 16, 64, " dp")
-        slider(c, "Posisi vertikal", K.OFFSET_Y, 0, 120, " dp")
+        val c = card("Ukuran, posisi & sudut")
+        c.addView(
+            button("✏  Edit langsung di layar", primary = true) {
+                requireService {
+                    IslandBus.post(IslandEvent.EditMode(true))
+                    Toast.makeText(this, "Seret island untuk memindahkan, atur ukuran di panel bawahnya", Toast.LENGTH_LONG).show()
+                }
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) },
+        )
+        c.addView(text("Preset bentuk", 14f), LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(14) })
+        fun preset(name: String, w: Int, hh: Int, r: Int) = name to {
+            prefs.put(K.WIDTH, w); prefs.put(K.HEIGHT, hh); prefs.put(K.RADIUS, r)
+            changed(); build()
+        }
+        buttonRow(
+            c,
+            preset("iPhone", 118, 34, 50),
+            preset("Kecil", 88, 26, 50),
+            preset("Besar", 160, 40, 50),
+            preset("Titik kamera", 30, 30, 50),
+            preset("Kapsul tipis", 140, 22, 50),
+            preset("Kotak tumpul", 120, 34, 25),
+            preset("Kotak", 120, 32, 8),
+        )
+        slider(c, "Lebar", K.WIDTH, 20, 300, " dp")
+        slider(c, "Tinggi", K.HEIGHT, 12, 80, " dp")
+        slider(c, "Posisi vertikal", K.OFFSET_Y, 0, 300, " dp")
         slider(c, "Posisi horizontal", K.OFFSET_X, -200, 200, " dp")
         slider(c, "Kebulatan sudut", K.RADIUS, 0, 50, "%")
         slider(c, "Lebar tambahan (mode ringkas)", K.COMPACT_EXTRA, 30, 160, " dp")
         slider(c, "Lebar saat diperluas", K.EXP_WIDTH, 60, 100, "%")
         slider(c, "Sudut saat diperluas", K.EXP_RADIUS, 8, 48, " dp")
         slider(c, "Opasitas", K.OPACITY, 30, 100, "%")
+        buttonRow(
+            c,
+            "Sejajarkan ke kamera" to { autoAlign() },
+            "Reset tampilan" to { prefs.resetLook(); changed(); build() },
+        )
+        colorCard()
+    }
+
+    private fun colorCard() {
+        val c = card("Warna")
         colors(
             c, "Warna latar", K.BG_COLOR,
             listOf(0xFF000000, 0xFF1C1C1E, 0xFF0B1730, 0xFF1F0B33, 0xFF0B2A1E, 0xFF330B10).map { it.toInt() },
@@ -250,11 +306,6 @@ class MainActivity : Activity() {
             ).map { it.toInt() },
         )
         toggle(c, "Warna visualizer ikuti album", K.ALBUM_COLOR)
-        buttonRow(
-            c,
-            "Sejajarkan ke kamera" to { autoAlign() },
-            "Reset tampilan" to { prefs.resetLook(); changed(); build() },
-        )
     }
 
     private fun animationCard() {

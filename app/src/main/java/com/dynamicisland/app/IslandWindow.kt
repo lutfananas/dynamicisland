@@ -91,6 +91,18 @@ class IslandWindow(private val svc: AccessibilityService) {
     private var landscape = false
     private var lastTimeout = 5000L
 
+    // Mode edit langsung
+    private var editMode = false
+    private var toolbar: View? = null
+    private var posLabel: TextView? = null
+    private val editLabels = HashMap<String, Pair<TextView, String>>()
+    private var dragX = 0f
+    private var dragY = 0f
+    private var startOX = 0
+    private var startOY = 0
+    private var pendingX = 0
+    private var pendingY = 0
+
     private var curW = 0f
     private var curH = 0f
     private var curR = 0f
@@ -264,6 +276,7 @@ class IslandWindow(private val svc: AccessibilityService) {
     // ---------------------------------------------------------------- event
 
     private fun onEvent(e: IslandEvent) {
+        if (editMode && e !is IslandEvent.EditMode && e != IslandEvent.PrefsChanged) return
         when (e) {
             is IslandEvent.Notif -> {
                 if (replying) return
@@ -280,6 +293,7 @@ class IslandWindow(private val svc: AccessibilityService) {
             IslandEvent.PrefsChanged -> render()
             IslandEvent.PreviewCharging -> showTemp(Kind.CHARGE, 3500)
             IslandEvent.OpenPanel -> expand(Kind.PANEL)
+            is IslandEvent.EditMode -> setEditMode(e.on)
         }
     }
 
@@ -432,6 +446,10 @@ class IslandWindow(private val svc: AccessibilityService) {
         if (!added) return
         applyStyle()
         applyPosition()
+        if (editMode) {
+            renderEdit()
+            return
+        }
         if (landscape && prefs.bool(K.HIDE_LANDSCAPE)) {
             root.visibility = View.GONE
             updateWindow()
@@ -594,7 +612,10 @@ class IslandWindow(private val svc: AccessibilityService) {
                 return true
             }
         })
-        pill.setOnTouchListener { _, ev -> gd.onTouchEvent(ev); true }
+        pill.setOnTouchListener { _, ev ->
+            if (editMode) handleDrag(ev) else gd.onTouchEvent(ev)
+            true
+        }
         root.setOnTouchListener { _, ev ->
             if (ev.action == MotionEvent.ACTION_OUTSIDE) {
                 val k = expandedKind
@@ -927,9 +948,159 @@ class IslandWindow(private val svc: AccessibilityService) {
             collapse()
             h.postDelayed({ svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN) }, 300)
         }
+        item("✏", "Edit") { collapse(); setEditMode(true) }
         item("⚙", "Atur") { collapse(); openSettings() }
         col.addView(grid, ViewGroup.LayoutParams(-1, -2))
         return col
+    }
+
+    // ---------------------------------------------------------------- mode edit
+
+    private fun setEditMode(on: Boolean) {
+        if (on == editMode) return
+        h.removeCallbacks(collapseTask)
+        if (replying) setReplying(false)
+        expandedKind = null
+        notif = null
+        editMode = on
+        if (on) {
+            haptic(30)
+            val tb = buildEditToolbar()
+            toolbar = tb
+            root.addView(tb, FrameLayout.LayoutParams(dp(280), -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        } else {
+            toolbar?.let { root.removeView(it) }
+            toolbar = null
+            posLabel = null
+            editLabels.clear()
+            bg.setStroke(0, 0)
+            haptic()
+        }
+        render()
+    }
+
+    private fun renderEdit() {
+        root.visibility = View.VISIBLE
+        anim?.cancel()
+        clearExpandedRefs()
+        expanded.animate().cancel()
+        expanded.removeAllViews()
+        expanded.visibility = View.GONE
+        compact.animate().cancel()
+        compact.alpha = 0f
+        shownCompact = null
+        pill.animate().cancel()
+        pill.alpha = 1f
+        lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        bg.setStroke(dp(2), accent())
+        val idle = idleGeom()
+        setGeom(idle[0], idle[1], idle[2])
+        val tb = toolbar ?: return
+        val tlp = tb.layoutParams as FrameLayout.LayoutParams
+        tlp.topMargin = idle[1].roundToInt() + dp(12)
+        tb.layoutParams = tlp
+        updateEditLabels()
+        tb.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(280), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        lp.width = max(idle[0].roundToInt(), dp(280))
+        lp.height = idle[1].roundToInt() + dp(12) + tb.measuredHeight
+        updateWindow()
+    }
+
+    private fun updateEditLabels() {
+        editLabels.forEach { (key, v) -> v.first.text = "${prefs.int(key)}${v.second}" }
+        posLabel?.text = "Posisi  X ${prefs.int(K.OFFSET_X)} · Y ${prefs.int(K.OFFSET_Y)}"
+    }
+
+    private fun handleDrag(ev: MotionEvent) {
+        val d = ctx.resources.displayMetrics.density
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                dragX = ev.rawX; dragY = ev.rawY
+                startOX = prefs.int(K.OFFSET_X); startOY = prefs.int(K.OFFSET_Y)
+                pendingX = startOX; pendingY = startOY
+                haptic()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val maxX = (ctx.resources.displayMetrics.widthPixels / d / 2).toInt()
+                pendingX = (startOX + (ev.rawX - dragX) / d).roundToInt().coerceIn(-maxX, maxX)
+                pendingY = (startOY + (ev.rawY - dragY) / d).roundToInt().coerceIn(0, 300)
+                lp.x = dp(pendingX)
+                lp.y = dp(pendingY)
+                updateWindow()
+                posLabel?.text = "Posisi  X $pendingX · Y $pendingY"
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                prefs.put(K.OFFSET_X, pendingX)
+                prefs.put(K.OFFSET_Y, pendingY)
+                updateEditLabels()
+            }
+        }
+    }
+
+    private fun changePref(key: String, delta: Int, min: Int, max: Int) {
+        prefs.put(key, (prefs.int(key) + delta).coerceIn(min, max))
+        renderEdit()
+    }
+
+    /** Tombol yang mengulang aksinya selama ditahan. */
+    private fun repeatBtn(label: String, action: () -> Unit) = TextView(ctx).apply {
+        text = label
+        textSize = 18f
+        typeface = Typeface.DEFAULT_BOLD
+        gravity = Gravity.CENTER
+        setTextColor(Palette.WHITE)
+        background = roundBg(Palette.FAINT, dpf(17))
+        val repeat = object : Runnable {
+            override fun run() { action(); postDelayed(this, 70) }
+        }
+        setOnTouchListener { v, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { haptic(); action(); v.postDelayed(repeat, 400) }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.removeCallbacks(repeat)
+            }
+            true
+        }
+    }
+
+    private fun buildEditToolbar(): View {
+        editLabels.clear()
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundBg(0xF21C1C22.toInt(), dpf(20))
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+        }
+        card.addView(tv("Seret island untuk memindahkan", 12f, Palette.SECONDARY).apply { gravity = Gravity.CENTER }, lpw(-1, -2))
+        val pos = tv("", 12f, accent(), true).apply { gravity = Gravity.CENTER; fontFeatureSettings = "tnum" }
+        posLabel = pos
+        card.addView(pos, lpw(-1, -2, 0f, 0, dp(2)))
+
+        fun stepper(label: String, key: String, step: Int, min: Int, max: Int, suffix: String) {
+            val row = LinearLayout(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
+            row.addView(tv(label, 13f), lpw(0, -2, 1f))
+            row.addView(repeatBtn("−") { changePref(key, -step, min, max) }, lpw(dp(34), dp(34)))
+            val value = tv("", 13f, Palette.WHITE, true).apply { gravity = Gravity.CENTER; fontFeatureSettings = "tnum" }
+            row.addView(value, lpw(dp(62), -2))
+            row.addView(repeatBtn("+") { changePref(key, step, min, max) }, lpw(dp(34), dp(34)))
+            editLabels[key] = value to suffix
+            card.addView(row, lpw(-1, -2, 0f, 0, dp(8)))
+        }
+        stepper("Lebar", K.WIDTH, 2, 20, 300, " dp")
+        stepper("Tinggi", K.HEIGHT, 1, 12, 80, " dp")
+        stepper("Sudut", K.RADIUS, 2, 0, 50, "%")
+        stepper("Sudut diperluas", K.EXP_RADIUS, 2, 8, 48, " dp")
+        stepper("Lebar diperluas", K.EXP_WIDTH, 2, 60, 100, "%")
+
+        val btns = LinearLayout(ctx).apply { gravity = Gravity.CENTER }
+        btns.addView(chip("Tengahkan") { prefs.put(K.OFFSET_X, 0); renderEdit() })
+        btns.addView(chip("Selesai", accent()) {
+            setEditMode(false)
+            IslandBus.post(IslandEvent.PrefsChanged)
+        }, lpw(-2, -2, 0f, dp(10)))
+        card.addView(btns, lpw(-1, -2, 0f, 0, dp(12)))
+        return card
     }
 
     // ---------------------------------------------------------------- aksi

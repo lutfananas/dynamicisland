@@ -26,6 +26,7 @@ sealed class IslandEvent {
     data object PrefsChanged : IslandEvent()
     data object PreviewCharging : IslandEvent()
     data object OpenPanel : IslandEvent()
+    data class EditMode(val on: Boolean) : IslandEvent()
 }
 
 /** Penghubung sederhana antar komponen (semua berjalan di proses yang sama). */
