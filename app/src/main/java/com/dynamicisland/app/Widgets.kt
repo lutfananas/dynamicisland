@@ -33,7 +33,15 @@ class VisualizerView(ctx: Context) : View(ctx) {
             val top = (height - bh) / 2f
             canvas.drawRoundRect(x, top, x + bw, top + bh, bw / 2, bw / 2, paint)
         }
-        if (playing && isShown) postInvalidateOnAnimation()
+        // ~30 fps sudah cukup halus untuk bar visualizer; jauh lebih hemat daripada tiap frame (120 fps).
+        if (playing && isShown && screenOn) postInvalidateDelayed(FRAME_MS)
+    }
+
+    companion object {
+        private const val FRAME_MS = 33L
+
+        @Volatile
+        var screenOn = true
     }
 }
 

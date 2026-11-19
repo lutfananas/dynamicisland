@@ -337,7 +337,13 @@ class IslandWindow(private val svc: AccessibilityService) {
     private val screenRx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) {
             updateLocked()
-            if (i.action == Intent.ACTION_SCREEN_ON) root.invalidate()
+            // Visualizer berhenti menggambar saat layar mati, lanjut lagi saat layar nyala.
+            VisualizerView.screenOn = i.action != Intent.ACTION_SCREEN_OFF
+            if (i.action == Intent.ACTION_SCREEN_ON) {
+                root.invalidate()
+                cRightViz.invalidate()
+                mViz?.invalidate()
+            }
         }
     }
 
@@ -501,15 +507,32 @@ class IslandWindow(private val svc: AccessibilityService) {
             val best = d.supportedModes.filter {
                 it.physicalWidth == d.mode.physicalWidth && it.physicalHeight == d.mode.physicalHeight
             }.maxByOrNull { it.refreshRate } ?: return
-            lp.preferredDisplayModeId = best.modeId
-            lp.preferredRefreshRate = best.refreshRate
+            fastModeId = best.modeId
+            fastRate = best.refreshRate
         } catch (_: Exception) {
         }
     }
 
+    private var fastModeId = 0
+    private var fastRate = 0f
+    private var fastRefs = 0
+
+    /**
+     * Refresh rate tinggi HANYA selama animasi berjalan. Saat diam, jendela tidak meminta
+     * apa pun sehingga layar bisa kembali ke 60 Hz / adaptif → hemat baterai.
+     */
     private fun setFastFrames(on: Boolean) {
+        val before = fastRefs > 0
+        fastRefs = if (on) fastRefs + 1 else (fastRefs - 1).coerceAtLeast(0)
+        val now = fastRefs > 0
+        if (before == now) return
         if (Build.VERSION.SDK_INT >= 35) {
-            root.requestedFrameRate = if (on) View.REQUESTED_FRAME_RATE_CATEGORY_HIGH else View.REQUESTED_FRAME_RATE_CATEGORY_DEFAULT
+            root.requestedFrameRate = if (now) View.REQUESTED_FRAME_RATE_CATEGORY_HIGH else View.REQUESTED_FRAME_RATE_CATEGORY_DEFAULT
+        }
+        if (fastModeId != 0) {
+            lp.preferredDisplayModeId = if (now) fastModeId else 0
+            lp.preferredRefreshRate = if (now) fastRate else 0f
+            updateWindow()
         }
     }
 

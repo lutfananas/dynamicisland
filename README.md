@@ -44,6 +44,14 @@ opasitas, warna latar, warna aksen, durasi animasi, efek pegas (bounce), lama no
 getaran haptik, sembunyikan saat landscape atau saat tidak ada aktivitas, dan tombol
 **"Sejajarkan ke kamera"** yang membaca posisi lubang kamera ponsel secara otomatis.
 
+## Hemat baterai
+- Refresh rate tinggi (120 Hz) hanya diminta **selama animasi berjalan**. Saat diam, layar kembali ke mode normal/adaptif.
+- Visualizer musik digambar ±30 fps dan berhenti total saat layar mati.
+- Timer/stopwatch hanya memperbarui tampilan 1x per detik, tepat saat angka berubah.
+- Tidak ada polling, tidak ada akses internet, GPS, atau mikrofon. Semuanya berbasis event dari sistem
+  (notifikasi, sesi media, baterai, mode suara).
+- Layanan aksesibilitas tidak memantau perpindahan aplikasi atau isi layar.
+
 ## Instalasi
 
 1. Unduh APK dari tab **Actions** → build terakhir → artifact `DynamicIsland-apk`

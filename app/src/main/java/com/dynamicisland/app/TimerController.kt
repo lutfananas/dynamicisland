@@ -27,7 +27,11 @@ object TimerController {
                 return
             }
             IslandBus.post(IslandEvent.TimerChanged)
-            if (running) h.postDelayed(this, 250)
+            // Bangun tepat saat angka detik berubah (1x per detik), bukan 4x per detik.
+            if (running) {
+                val next = if (mode == Mode.COUNTDOWN) remaining() % 1000 + 1 else 1000 - elapsed() % 1000
+                h.postDelayed(this, next.coerceIn(16, 1000))
+            }
         }
     }
 
