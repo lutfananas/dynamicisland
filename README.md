@@ -21,12 +21,13 @@ Aplikasi Android native (Kotlin, tanpa library tambahan, APK ±100 KB) yang meng
 | **Panel mini apps** | Geser island kosong ke bawah: senter, timer 5 menit, stopwatch, screenshot, kunci layar, edit, dan pengaturan. |
 | **Animasi 120 Hz** | Bentuk island digambar langsung oleh GPU (tanpa hitung ulang tata letak), membesar dan mengecil tepat dari tengah, dengan kurva pegas dan refresh rate tertinggi layar. |
 | **Tampil di layar kunci** | Notifikasi, musik, timer, dan pengisian daya juga muncul saat ponsel terkunci (bisa dimatikan). Memakai overlay aksesibilitas, jadi tidak perlu izin "tampil di atas aplikasi lain". |
-| **Daftar blokir aplikasi** | Pilih aplikasi mana yang boleh muncul di island. |
+| **Daftar blokir aplikasi** | Pilih aplikasi mana yang boleh muncul di island, plus pintasan untuk mematikan pop-up bawaan sistem (agar notifikasi tidak dobel). |
+| **Anti notifikasi ganda** | Notifikasi berisi sama yang dikirim dua kali dalam 5 detik hanya ditampilkan sekali. |
 
 ### Gestur
 - **Ketuk**: perluas/tutup. Pada island kosong, memunculkan cahaya keliling.
 - **Tahan**: buka aplikasi terkait (notifikasi/musik). Pada island kosong, membuka pengaturan.
-- **Geser ke atas**: sembunyikan.
+- **Geser notifikasi ke atas/kiri/kanan**: island mengikuti jari, lalu menutup dan kembali mulus ke bentuk awal.
 - **Geser ke bawah**: perluas atau buka panel mini apps.
 - **Geser kiri/kanan** saat musik: lagu berikutnya/sebelumnya.
 

@@ -581,8 +581,19 @@ class IslandWindow(private val svc: AccessibilityService) {
     }
 
     private fun setVisible(visible: Boolean) {
-        root.animate().cancel()
-        if (visible) root.alpha = 1f else root.animate().alpha(0f).setDuration(200).start()
+        if (visible) {
+            // Jangan potong animasi pegas setelah geser (ia sendiri mengembalikan alpha ke 1).
+            if (!springing) {
+                root.animate().cancel()
+                root.alpha = 1f
+            }
+        } else {
+            root.animate().cancel()
+            springing = false
+            root.translationX = 0f; root.translationY = 0f
+            root.scaleX = 1f; root.scaleY = 1f
+            root.animate().alpha(0f).setDuration(200).start()
+        }
         setTouchable(visible)
     }
 
@@ -766,9 +777,121 @@ class IslandWindow(private val svc: AccessibilityService) {
             }
         })
         pill.setOnTouchListener { _, ev ->
-            if (editMode) handleDrag(ev) else gd.onTouchEvent(ev)
+            when {
+                editMode -> handleDrag(ev)
+                handleSwipe(ev, gd) -> {}
+                else -> gd.onTouchEvent(ev)
+            }
             true
         }
+    }
+
+    // ---------------------------------------------------------------- geser untuk menutup
+
+    private var swipeStartX = 0f
+    private var swipeStartY = 0f
+    private var swiping = false
+    private var swipeHorizontal = false
+    private var lastSampleT = 0L
+    private var lastSampleX = 0f
+    private var lastSampleY = 0f
+    private var velX = 0f
+    private var velY = 0f
+    private val slop by lazy { android.view.ViewConfiguration.get(ctx).scaledTouchSlop }
+
+    /**
+     * Island yang sedang diperluas bisa digeser (atas/kiri/kanan) mengikuti jari.
+     * Dilepas cukup jauh/cepat → menutup dan kembali mulus ke bentuk awal; jika tidak → memantul balik.
+     * Mengembalikan true bila event dipakai untuk geser.
+     */
+    private fun handleSwipe(ev: MotionEvent, gd: GestureDetector): Boolean {
+        val kind = expandedKind ?: return false
+        if (replying) return false
+        val x = touchRawX
+        val y = touchRawY
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                swipeStartX = x; swipeStartY = y
+                swiping = false
+                velX = 0f; velY = 0f
+                lastSampleT = ev.eventTime; lastSampleX = x; lastSampleY = y
+                if (springing) {
+                    root.animate().cancel()
+                    springing = false
+                }
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dt = (ev.eventTime - lastSampleT).coerceAtLeast(1)
+                velX = 0.6f * velX + 0.4f * (x - lastSampleX) / dt
+                velY = 0.6f * velY + 0.4f * (y - lastSampleY) / dt
+                lastSampleT = ev.eventTime; lastSampleX = x; lastSampleY = y
+                val dx = x - swipeStartX
+                val dy = y - swipeStartY
+                if (!swiping) {
+                    val horizontalOk = kind != Kind.MEDIA // geser kiri/kanan pada musik = ganti lagu
+                    when {
+                        dy < -slop && abs(dy) > abs(dx) -> { swiping = true; swipeHorizontal = false }
+                        horizontalOk && abs(dx) > slop && abs(dx) > abs(dy) -> { swiping = true; swipeHorizontal = true }
+                    }
+                    if (!swiping) return false
+                    // Batalkan tap/long-press yang mungkin sedang dideteksi.
+                    val cancel = MotionEvent.obtain(ev)
+                    cancel.action = MotionEvent.ACTION_CANCEL
+                    gd.onTouchEvent(cancel)
+                    cancel.recycle()
+                    h.removeCallbacks(collapseTask)
+                    root.pivotX = root.width / 2f + root.centerOffset
+                    root.pivotY = root.pad.toFloat()
+                }
+                val tx = if (swipeHorizontal) dx else dx * 0.15f
+                val ty = if (swipeHorizontal) 0f else if (dy < 0) dy else dy * 0.2f
+                val dist = if (swipeHorizontal) abs(dx) else -dy
+                val p = (dist / dpf(140)).coerceIn(0f, 1f)
+                root.translationX = tx
+                root.translationY = ty
+                root.scaleX = 1f - 0.12f * p
+                root.scaleY = 1f - 0.12f * p
+                root.alpha = 1f - 0.4f * p
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (!swiping) return false
+                swiping = false
+                val dx = x - swipeStartX
+                val dy = y - swipeStartY
+                val fast = dpf(1) * 0.9f // ≈ 0,9 dp per ms
+                val dismiss = ev.actionMasked == MotionEvent.ACTION_UP && if (swipeHorizontal) {
+                    abs(dx) > dpf(70) || abs(velX) > fast
+                } else {
+                    -dy > dpf(36) || -velY > fast
+                }
+                springBack()
+                if (dismiss) {
+                    haptic()
+                    collapse()
+                } else {
+                    scheduleCollapse(max(lastTimeout, 4000))
+                }
+                return true
+            }
+        }
+        return swiping
+    }
+
+    /** Kembalikan posisi/skala dengan pegas — bersamaan dengan island mengecil ke bentuk awal. */
+    private var springing = false
+
+    private fun springBack() {
+        root.animate().cancel()
+        springing = true
+        root.animate()
+            .withEndAction { springing = false }
+            .translationX(0f).translationY(0f)
+            .scaleX(1f).scaleY(1f).alpha(1f)
+            .setInterpolator(SpringInterpolator(0.86f))
+            .setDuration(prefs.int(K.ANIM_MS).toLong())
+            .start()
     }
 
     private fun mediaVisible() = expandedKind == Kind.MEDIA || (expandedKind == null && shownCompact == Kind.MEDIA)

@@ -9,6 +9,7 @@ import android.service.notification.StatusBarNotification
 class NotifService : NotificationListenerService() {
     private lateinit var prefs: Prefs
     private val lastPosted = HashMap<String, Long>()
+    private val recent = HashMap<String, Long>()
 
     override fun onListenerConnected() {
         prefs = Prefs(this)
@@ -49,6 +50,16 @@ class NotifService : NotificationListenerService() {
         if (seenBefore && (n.flags and Notification.FLAG_ONLY_ALERT_ONCE) != 0) return
         if (lastPosted.size > 300) lastPosted.clear()
         lastPosted[sbn.key] = System.currentTimeMillis()
+
+        // Cegah notifikasi ganda: banyak aplikasi chat mengirim isi yang sama dua kali
+        // (kunci berbeda atau update cepat). Isi sama dalam 5 detik → abaikan.
+        val ex0 = n.extras
+        val sig = pkg + "|" + ex0.getCharSequence(Notification.EXTRA_TITLE) + "|" +
+            (ex0.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex0.getCharSequence(Notification.EXTRA_TEXT))
+        val now = System.currentTimeMillis()
+        recent.entries.removeAll { now - it.value > 5000 }
+        if (recent.containsKey(sig)) return
+        recent[sig] = now
 
         val seen = prefs.seen
         if (pkg !in seen) prefs.seen = seen + pkg

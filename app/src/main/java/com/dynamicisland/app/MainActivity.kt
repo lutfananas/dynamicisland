@@ -75,7 +75,7 @@ class MainActivity : Activity() {
         list.addView(
             text(
                 "Gestur: ketuk = buka/tutup (island kosong = cahaya berputar) · tahan = buka aplikasi · " +
-                    "geser ke atas = sembunyikan · geser ke bawah = perluas / panel mini apps · " +
+                    "geser notifikasi ke atas/kiri/kanan = tutup · geser ke bawah = perluas / panel mini apps · " +
                     "geser kiri/kanan saat musik = lagu berikut/sebelumnya.",
                 12f, Palette.SECONDARY,
             ).apply { setPadding(dp(6), dp(20), dp(6), 0) }
@@ -375,7 +375,16 @@ class MainActivity : Activity() {
         val labeled = seen.map { pkg ->
             pkg to (try { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() } catch (_: Exception) { pkg })
         }.sortedBy { it.second.lowercase() }
+        c.addView(
+            text(
+                "Notifikasi muncul dua kali? Itu pop-up bawaan sistem yang tampil bersamaan dengan island. " +
+                    "Tekan \"Pop-up sistem\" lalu matikan \"Pop-up\" / \"Tampilkan sebagai pop-up\" / \"Notifikasi mengambang\" " +
+                    "untuk aplikasi itu, agar notifikasinya hanya tampil di island.",
+                12f, Palette.SECONDARY,
+            ).apply { setPadding(0, dp(4), 0, dp(6)) }
+        )
         labeled.forEach { (pkg, label) ->
+            val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
             val cb = CheckBox(this).apply {
                 text = label
                 textSize = 15f
@@ -385,7 +394,9 @@ class MainActivity : Activity() {
                     prefs.blocked = if (on) prefs.blocked - pkg else prefs.blocked + pkg
                 }
             }
-            c.addView(cb)
+            row.addView(cb, LinearLayout.LayoutParams(0, -2, 1f))
+            row.addView(miniPill("Pop-up sistem") { openAppNotificationSettings(pkg) })
+            c.addView(row, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
         }
     }
 
@@ -440,6 +451,27 @@ class MainActivity : Activity() {
         if (prefs.int(K.WIDTH) < prefs.int(K.HEIGHT) * 3) prefs.put(K.WIDTH, prefs.int(K.HEIGHT) * 3)
         Toast.makeText(this, "Island disejajarkan dengan kamera", Toast.LENGTH_SHORT).show()
         changed(); build()
+    }
+
+    private fun miniPill(label: String, onClick: () -> Unit) = TextView(this).apply {
+        text = label
+        textSize = 12f
+        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(Palette.WHITE)
+        background = roundBg(0xFF2C2C34.toInt(), dp(14).toFloat())
+        setPadding(dp(12), dp(6), dp(12), dp(6))
+        setOnClickListener { onClick() }
+    }
+
+    private fun openAppNotificationSettings(pkg: String) {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, pkg)
+            )
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg")))
+        }
     }
 
     private fun isAccessibilityEnabled(): Boolean {
