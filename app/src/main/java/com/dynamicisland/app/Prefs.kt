@@ -34,11 +34,19 @@ object K {
     const val HAPTICS = "haptics"
     const val HIDE_LANDSCAPE = "hide_landscape"
     const val HIDE_IDLE = "hide_idle"
-    const val PANEL_TAP = "panel_tap"
+
+    // Cahaya saat island kosong diketuk
+    const val GLOW_ON = "glow_on"
+    const val GLOW_COLOR = "glow_color"
+    const val GLOW_RAINBOW = "glow_rainbow"
+    const val GLOW_WIDTH = "glow_width"
+    const val GLOW_SPEED = "glow_speed"
+    const val GLOW_LAPS = "glow_laps"
 
     val LOOK_KEYS = listOf(
         WIDTH, HEIGHT, OFFSET_X, OFFSET_Y, RADIUS, EXP_RADIUS, EXP_WIDTH,
         COMPACT_EXTRA, OPACITY, BG_COLOR, ACCENT, ANIM_MS, BOUNCE, ALBUM_COLOR,
+        GLOW_COLOR, GLOW_RAINBOW, GLOW_WIDTH, GLOW_SPEED, GLOW_LAPS,
     )
 
     val INTS = mapOf(
@@ -53,8 +61,12 @@ object K {
         OPACITY to 100,
         BG_COLOR to 0xFF000000.toInt(),
         ACCENT to 0xFF30D158.toInt(),
-        ANIM_MS to 450,
+        ANIM_MS to 520,
         NOTIF_TIMEOUT to 5,
+        GLOW_COLOR to 0xFF64D2FF.toInt(),
+        GLOW_WIDTH to 5, // dalam setengah dp (5 = 2,5 dp)
+        GLOW_SPEED to 900,
+        GLOW_LAPS to 2,
     )
 
     val BOOLS = mapOf(
@@ -71,7 +83,8 @@ object K {
         HAPTICS to true,
         HIDE_LANDSCAPE to true,
         HIDE_IDLE to false,
-        PANEL_TAP to true,
+        GLOW_ON to true,
+        GLOW_RAINBOW to false,
     )
 }
 

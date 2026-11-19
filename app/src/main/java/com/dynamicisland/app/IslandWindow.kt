@@ -17,11 +17,12 @@ import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Outline
 import android.graphics.PixelFormat
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
+import android.hardware.display.DisplayManager
 import android.media.AudioManager
 import android.os.BatteryManager
 import android.os.Build
@@ -43,8 +44,8 @@ import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.view.animation.DecelerateInterpolator
-import android.view.animation.OvershootInterpolator
+import android.view.Display
+import android.view.animation.LinearInterpolator
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -67,9 +68,9 @@ class IslandWindow(private val svc: AccessibilityService) {
     private val prefs = Prefs(svc)
     private val h = Handler(Looper.getMainLooper())
 
-    private val root = FrameLayout(ctx)
+    private val root = IslandSurface(ctx)
     private val pill = FrameLayout(ctx)
-    private val bg = GradientDrawable()
+    private var glowAnim: ValueAnimator? = null
     private val compact = LinearLayout(ctx)
     private val leftBox = FrameLayout(ctx)
     private val rightBox = FrameLayout(ctx)
@@ -161,12 +162,20 @@ class IslandWindow(private val svc: AccessibilityService) {
     fun attach() {
         landscape = ctx.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-        pill.background = bg
+        // Konten di-clip mengikuti bentuk island yang digambar IslandSurface.
         pill.clipToOutline = true
-        pill.outlineProvider = ViewOutlineProvider.BACKGROUND
-        root.addView(pill, FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        pill.outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                val l = (view.width - root.shapeW) / 2f
+                outline.setRoundRect(
+                    l.roundToInt(), 0, (l + root.shapeW).roundToInt(), root.shapeH.roundToInt(), root.radius,
+                )
+            }
+        }
+        val p = root.pad
+        root.addView(pill, FrameLayout.LayoutParams(-1, -1).apply { setMargins(p, p, p, p) })
         setupCompact()
-        pill.addView(compact, FrameLayout.LayoutParams(1, 1, Gravity.CENTER))
+        pill.addView(compact, FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         pill.addView(expanded, FrameLayout.LayoutParams(1, 1, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
         expanded.visibility = View.GONE
         compact.alpha = 0f
@@ -182,8 +191,9 @@ class IslandWindow(private val svc: AccessibilityService) {
         applyPosition()
         val idle = idleGeom()
         setGeom(idle[0], idle[1], idle[2])
-        lp.width = ceil(idle[0]).toInt()
-        lp.height = ceil(idle[1]).toInt()
+        lp.width = ceil(idle[0]).toInt() + 2 * root.pad
+        lp.height = ceil(idle[1]).toInt() + 2 * root.pad
+        requestHighRefreshRate()
         try {
             wm.addView(root, lp)
             added = true
@@ -203,6 +213,7 @@ class IslandWindow(private val svc: AccessibilityService) {
         try { ctx.unregisterReceiver(ringerRx) } catch (_: Exception) {}
         try { cam?.unregisterTorchCallback(torchCb) } catch (_: Exception) {}
         anim?.cancel()
+        glowAnim?.cancel()
         h.removeCallbacksAndMessages(null)
         if (added) {
             try { wm.removeView(root) } catch (_: Exception) {}
@@ -293,6 +304,7 @@ class IslandWindow(private val svc: AccessibilityService) {
             IslandEvent.PrefsChanged -> render()
             IslandEvent.PreviewCharging -> showTemp(Kind.CHARGE, 3500)
             IslandEvent.OpenPanel -> expand(Kind.PANEL)
+            IslandEvent.Glow -> startGlow()
             is IslandEvent.EditMode -> setEditMode(e.on)
         }
     }
@@ -367,26 +379,47 @@ class IslandWindow(private val svc: AccessibilityService) {
 
     private fun applyStyle() {
         val a = prefs.int(K.OPACITY).coerceIn(0, 100) * 255 / 100
-        bg.setColor((prefs.int(K.BG_COLOR) and 0xFFFFFF) or (a shl 24))
+        root.fillColor = (prefs.int(K.BG_COLOR) and 0xFFFFFF) or (a shl 24)
+        root.invalidate()
     }
 
     private fun applyPosition() {
         lp.x = dp(prefs.int(K.OFFSET_X))
-        lp.y = dp(prefs.int(K.OFFSET_Y))
+        lp.y = dp(prefs.int(K.OFFSET_Y)) - root.pad
+    }
+
+    /** Minta refresh rate tertinggi layar (mis. 120 Hz) untuk jendela island. */
+    private fun requestHighRefreshRate() {
+        try {
+            val d = ctx.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY) ?: return
+            val best = d.supportedModes.filter {
+                it.physicalWidth == d.mode.physicalWidth && it.physicalHeight == d.mode.physicalHeight
+            }.maxByOrNull { it.refreshRate } ?: return
+            lp.preferredDisplayModeId = best.modeId
+            lp.preferredRefreshRate = best.refreshRate
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun setFastFrames(on: Boolean) {
+        if (Build.VERSION.SDK_INT >= 35) {
+            root.requestedFrameRate = if (on) View.REQUESTED_FRAME_RATE_CATEGORY_HIGH else View.REQUESTED_FRAME_RATE_CATEGORY_DEFAULT
+        }
     }
 
     private fun setGeom(w: Float, hh: Float, r: Float) {
         curW = w; curH = hh; curR = r
-        val p = pill.layoutParams as FrameLayout.LayoutParams
-        p.width = max(1, w.roundToInt())
-        p.height = max(1, hh.roundToInt())
-        pill.layoutParams = p
-        bg.cornerRadius = r.coerceAtLeast(0f)
+        // Hanya redraw + outline baru: tidak ada layout pass per frame.
+        root.shapeW = max(1f, w)
+        root.shapeH = max(1f, hh)
+        root.radius = r.coerceIn(0f, min(w, hh) / 2f)
+        root.invalidate()
+        pill.invalidateOutline()
     }
 
     private fun setWindowSize(w: Float, hh: Float) {
-        val nw = max(1, ceil(w).toInt())
-        val nh = max(1, ceil(hh).toInt())
+        val nw = max(1, ceil(w).toInt()) + 2 * root.pad
+        val nh = max(1, ceil(hh).toInt()) + 2 * root.pad
         if (lp.width != nw || lp.height != nh) {
             lp.width = nw
             lp.height = nh
@@ -404,13 +437,22 @@ class IslandWindow(private val svc: AccessibilityService) {
         val sh = curH
         val sr = curR
         val bounce = prefs.bool(K.BOUNCE)
-        val grow = if (bounce) 1.1f else 1f
-        // Jendela dibuat cukup besar selama animasi, lalu dipas di akhir.
+        val growing = w * hh >= sw * sh
+        val grow = if (bounce && growing) 1.06f else 1.01f
+        // Jendela dibuat cukup besar selama animasi (sekali saja), lalu dipas di akhir.
         setWindowSize(max(sw, w * grow) + dp(2), max(sh, hh * grow) + dp(2))
         val va = ValueAnimator.ofFloat(0f, 1f)
         anim = va
         va.duration = prefs.int(K.ANIM_MS).toLong()
-        va.interpolator = if (bounce) OvershootInterpolator(1.1f) else DecelerateInterpolator(2f)
+        // Membesar: pegas dengan sedikit pantulan. Mengecil: pegas hampir tanpa pantulan, jadi tetap mulus.
+        va.interpolator = SpringInterpolator(
+            when {
+                !bounce -> 0.98f
+                growing -> 0.72f
+                else -> 0.88f
+            }
+        )
+        setFastFrames(true)
         va.addUpdateListener {
             val f = it.animatedValue as Float
             setGeom(sw + (w - sw) * f, sh + (hh - sh) * f, sr + (r - sr) * f)
@@ -419,6 +461,7 @@ class IslandWindow(private val svc: AccessibilityService) {
             var cancelled = false
             override fun onAnimationCancel(animation: Animator) { cancelled = true }
             override fun onAnimationEnd(animation: Animator) {
+                setFastFrames(false)
                 if (cancelled) return
                 setGeom(w, hh, r)
                 setWindowSize(w, hh)
@@ -429,12 +472,12 @@ class IslandWindow(private val svc: AccessibilityService) {
     }
 
     private fun setVisible(visible: Boolean) {
-        pill.animate().cancel()
+        root.animate().cancel()
         if (visible) {
-            pill.alpha = 1f
+            root.alpha = 1f
             lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         } else {
-            pill.animate().alpha(0f).setDuration(200).start()
+            root.animate().alpha(0f).setDuration(200).start()
             lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         }
         updateWindow()
@@ -476,7 +519,12 @@ class IslandWindow(private val svc: AccessibilityService) {
             expanded.visibility = View.VISIBLE
             expanded.animate().cancel()
             expanded.alpha = 0f
-            expanded.animate().alpha(1f).setStartDelay(dur / 4).setDuration(dur / 2).start()
+            expanded.pivotX = tw / 2f
+            expanded.pivotY = 0f
+            expanded.scaleX = 0.92f
+            expanded.scaleY = 0.92f
+            expanded.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                .setStartDelay(dur / 5).setDuration(dur / 2).start()
             compact.animate().cancel()
             compact.animate().alpha(0f).setStartDelay(0).setDuration(dur / 5).start()
             setVisible(true)
@@ -488,7 +536,7 @@ class IslandWindow(private val svc: AccessibilityService) {
 
         clearExpandedRefs()
         expanded.animate().cancel()
-        expanded.animate().alpha(0f).setStartDelay(0).setDuration(dur / 5).withEndAction {
+        expanded.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setStartDelay(0).setDuration(dur / 4).withEndAction {
             if (expandedKind == null) {
                 expanded.removeAllViews()
                 expanded.visibility = View.GONE
@@ -500,7 +548,9 @@ class IslandWindow(private val svc: AccessibilityService) {
         if (ck != null) {
             val w = idle[0] + dpf(prefs.int(K.COMPACT_EXTRA))
             fillCompact(ck)
-            compact.layoutParams = FrameLayout.LayoutParams(w.roundToInt(), idle[1].roundToInt(), Gravity.CENTER)
+            compact.layoutParams = FrameLayout.LayoutParams(
+                w.roundToInt(), idle[1].roundToInt(), Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+            )
             compact.animate().cancel()
             compact.animate().alpha(1f).setStartDelay(dur / 3).setDuration(dur / 2).start()
             setVisible(true)
@@ -635,7 +685,7 @@ class IslandWindow(private val svc: AccessibilityService) {
             k != null -> collapse()
             shownCompact == Kind.CHARGE -> showTemp(Kind.CHARGE, 3000)
             shownCompact != null -> expand(shownCompact!!)
-            prefs.bool(K.PANEL_TAP) -> expand(Kind.PANEL)
+            else -> if (prefs.bool(K.GLOW_ON)) startGlow()
         }
     }
 
@@ -954,6 +1004,37 @@ class IslandWindow(private val svc: AccessibilityService) {
         return col
     }
 
+    // ---------------------------------------------------------------- cahaya keliling
+
+    /** Cahaya yang berputar mengelilingi sisi luar island. */
+    private fun startGlow() {
+        glowAnim?.cancel()
+        val laps = prefs.int(K.GLOW_LAPS).coerceAtLeast(1)
+        val lapMs = prefs.int(K.GLOW_SPEED).coerceAtLeast(200)
+        root.glowColor = prefs.int(K.GLOW_COLOR)
+        root.glowRainbow = prefs.bool(K.GLOW_RAINBOW)
+        root.glowWidth = ctx.dp(prefs.int(K.GLOW_WIDTH) / 2f).toFloat().coerceAtLeast(1f)
+        val va = ValueAnimator.ofFloat(0f, 1f)
+        glowAnim = va
+        va.duration = laps.toLong() * lapMs
+        va.interpolator = LinearInterpolator()
+        va.addUpdateListener {
+            val f = it.animatedValue as Float
+            root.glowAngle = f * 360f * laps - 90f
+            root.glowAlpha = min(1f, f / 0.12f) * min(1f, (1f - f) / 0.25f)
+            root.invalidate()
+        }
+        va.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                root.glowAlpha = 0f
+                root.invalidate()
+                setFastFrames(false)
+            }
+        })
+        setFastFrames(true)
+        va.start()
+    }
+
     // ---------------------------------------------------------------- mode edit
 
     private fun setEditMode(on: Boolean) {
@@ -973,7 +1054,8 @@ class IslandWindow(private val svc: AccessibilityService) {
             toolbar = null
             posLabel = null
             editLabels.clear()
-            bg.setStroke(0, 0)
+            root.strokeWidth = 0f
+            root.invalidate()
             haptic()
         }
         render()
@@ -989,23 +1071,24 @@ class IslandWindow(private val svc: AccessibilityService) {
         compact.animate().cancel()
         compact.alpha = 0f
         shownCompact = null
-        pill.animate().cancel()
-        pill.alpha = 1f
+        root.animate().cancel()
+        root.alpha = 1f
         lp.flags = lp.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
-        bg.setStroke(dp(2), accent())
+        root.strokeColor = accent()
+        root.strokeWidth = dpf(2)
         val idle = idleGeom()
         setGeom(idle[0], idle[1], idle[2])
         val tb = toolbar ?: return
         val tlp = tb.layoutParams as FrameLayout.LayoutParams
-        tlp.topMargin = idle[1].roundToInt() + dp(12)
+        tlp.topMargin = root.pad + idle[1].roundToInt() + dp(12)
         tb.layoutParams = tlp
         updateEditLabels()
         tb.measure(
             View.MeasureSpec.makeMeasureSpec(dp(280), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        lp.width = max(idle[0].roundToInt(), dp(280))
-        lp.height = idle[1].roundToInt() + dp(12) + tb.measuredHeight
+        lp.width = max(idle[0].roundToInt(), dp(280)) + 2 * root.pad
+        lp.height = idle[1].roundToInt() + dp(12) + tb.measuredHeight + 2 * root.pad
         updateWindow()
     }
 
@@ -1028,7 +1111,7 @@ class IslandWindow(private val svc: AccessibilityService) {
                 pendingX = (startOX + (ev.rawX - dragX) / d).roundToInt().coerceIn(-maxX, maxX)
                 pendingY = (startOY + (ev.rawY - dragY) / d).roundToInt().coerceIn(0, 300)
                 lp.x = dp(pendingX)
-                lp.y = dp(pendingY)
+                lp.y = dp(pendingY) - root.pad
                 updateWindow()
                 posLabel?.text = "Posisi  X $pendingX · Y $pendingY"
             }

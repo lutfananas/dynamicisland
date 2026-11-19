@@ -17,12 +17,14 @@ Aplikasi Android native (Kotlin, tanpa library tambahan, APK ±100 KB) yang meng
 | **Baterai lemah** | Peringatan saat baterai turun ke 20%. |
 | **Mode senyap/getar/dering** | Indikator muncul saat mode suara berubah. |
 | **Timer & stopwatch** | Berjalan sebagai *Live Activity*. Bisa jeda, +1 menit, dan berhenti, dengan getaran saat selesai. |
-| **Panel mini apps** | Senter, timer 5 menit, stopwatch, screenshot, kunci layar, dan pengaturan. |
+| **Cahaya keliling** | Ketuk island saat kosong: cahaya berputar mengelilingi sisi luarnya. Warna, mode pelangi, ketebalan, kecepatan, dan jumlah putaran bisa diatur. |
+| **Panel mini apps** | Geser island kosong ke bawah: senter, timer 5 menit, stopwatch, screenshot, kunci layar, edit, dan pengaturan. |
+| **Animasi 120 Hz** | Bentuk island digambar langsung oleh GPU (tanpa hitung ulang tata letak), dengan kurva pegas dan refresh rate tertinggi layar. |
 | **Tampil di layar kunci** | Memakai overlay aksesibilitas, jadi tidak perlu izin "tampil di atas aplikasi lain". |
 | **Daftar blokir aplikasi** | Pilih aplikasi mana yang boleh muncul di island. |
 
 ### Gestur
-- **Ketuk**: perluas/tutup. Pada island kosong, membuka panel mini apps.
+- **Ketuk**: perluas/tutup. Pada island kosong, memunculkan cahaya keliling.
 - **Tahan**: buka aplikasi terkait (notifikasi/musik). Pada island kosong, membuka pengaturan.
 - **Geser ke atas**: sembunyikan.
 - **Geser ke bawah**: perluas atau buka panel mini apps.

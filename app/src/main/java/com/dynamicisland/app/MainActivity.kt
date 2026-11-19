@@ -66,6 +66,7 @@ class MainActivity : Activity() {
         permissionsCard()
         lookCard()
         animationCard()
+        glowCard()
         behaviourCard()
         miniAppsCard()
         appsCard()
@@ -73,8 +74,9 @@ class MainActivity : Activity() {
 
         list.addView(
             text(
-                "Gestur: ketuk = buka/tutup · tahan = buka aplikasi · geser ke atas = sembunyikan · " +
-                    "geser ke bawah = perluas / panel mini apps · geser kiri/kanan saat musik = lagu berikut/sebelumnya.",
+                "Gestur: ketuk = buka/tutup (island kosong = cahaya berputar) · tahan = buka aplikasi · " +
+                    "geser ke atas = sembunyikan · geser ke bawah = perluas / panel mini apps · " +
+                    "geser kiri/kanan saat musik = lagu berikut/sebelumnya.",
                 12f, Palette.SECONDARY,
             ).apply { setPadding(dp(6), dp(20), dp(6), 0) }
         )
@@ -311,7 +313,26 @@ class MainActivity : Activity() {
     private fun animationCard() {
         val c = card("Animasi")
         slider(c, "Durasi", K.ANIM_MS, 150, 1000, " ms")
-        toggle(c, "Efek pegas (bounce)", K.BOUNCE, "Island sedikit memantul saat membesar/mengecil, seperti iPhone.")
+        toggle(c, "Efek pegas (bounce)", K.BOUNCE, "Island sedikit memantul saat membesar, lalu mengecil dengan mulus.")
+        c.addView(text("Animasi digambar langsung oleh GPU dan meminta refresh rate tertinggi layar (hingga 120 Hz).", 12f, Palette.SECONDARY).apply { setPadding(0, dp(8), 0, 0) })
+    }
+
+    private fun glowCard() {
+        val c = card("Cahaya saat diketuk")
+        c.addView(text("Saat tidak ada aktivitas, ketuk island untuk memunculkan cahaya yang berputar mengelilingi sisinya.", 12f, Palette.SECONDARY))
+        toggle(c, "Aktifkan cahaya keliling", K.GLOW_ON)
+        colors(
+            c, "Warna cahaya", K.GLOW_COLOR,
+            listOf(
+                0xFF64D2FF, 0xFF0A84FF, 0xFFBF5AF2, 0xFFFF375F, 0xFFFF9F0A,
+                0xFFFFD60A, 0xFF30D158, 0xFFFFFFFF,
+            ).map { it.toInt() },
+        )
+        toggle(c, "Mode pelangi", K.GLOW_RAINBOW, "Mengabaikan warna di atas dan memakai semua warna.")
+        slider(c, "Ketebalan", K.GLOW_WIDTH, 2, 12, " (×0,5 dp)")
+        slider(c, "Durasi satu putaran", K.GLOW_SPEED, 300, 3000, " ms")
+        slider(c, "Jumlah putaran", K.GLOW_LAPS, 1, 6, "x")
+        buttonRow(c, "Coba cahaya" to { requireService { IslandBus.post(IslandEvent.Glow) } })
     }
 
     private fun behaviourCard() {
@@ -325,7 +346,6 @@ class MainActivity : Activity() {
         toggle(c, "Indikator pengisian di mode ringkas", K.CHARGE_COMPACT)
         toggle(c, "Peringatan baterai lemah (20%)", K.LOW_BATT)
         toggle(c, "Indikator mode senyap / getar", K.RINGER)
-        toggle(c, "Ketuk island kosong = panel mini apps", K.PANEL_TAP)
         toggle(c, "Getaran haptik", K.HAPTICS)
         toggle(c, "Sembunyikan saat landscape", K.HIDE_LANDSCAPE)
         toggle(c, "Sembunyikan saat tidak ada aktivitas", K.HIDE_IDLE, "Cocok jika kamera ponselmu tidak di tengah.")
