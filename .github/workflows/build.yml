@@ -22,25 +22,31 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build
         run: ./gradlew assembleDebug assembleRelease --no-daemon
-      - name: Rename APK
+      - name: Version & rename APK
+        id: ver
         run: |
+          V=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
           mkdir -p out
-          cp app/build/outputs/apk/release/app-release.apk out/DynamicIsland-${GITHUB_REF_NAME//\//-}.apk
-          cp app/build/outputs/apk/debug/app-debug.apk out/DynamicIsland-${GITHUB_REF_NAME//\//-}-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk out/DynamicIsland-v$V.apk
+          cp app/build/outputs/apk/debug/app-debug.apk out/DynamicIsland-v$V-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: DynamicIsland-apk
           path: out/*.apk
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: Dynamic Island ${{ github.ref_name }}
+          tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Dynamic Island ${{ steps.ver.outputs.tag }}
+          make_latest: true
           files: out/*.apk
           generate_release_notes: true
           body: |
             ## Cara pasang
-            1. Unduh **DynamicIsland-${{ github.ref_name }}.apk** di bawah lalu pasang.
+            1. Unduh **DynamicIsland-${{ steps.ver.outputs.tag }}.apk** di bawah lalu pasang.
             2. Buka aplikasi, aktifkan **Layanan aksesibilitas** dan **Akses notifikasi**.
             3. Android 13+: jika aksesibilitas abu-abu → Info aplikasi → ⋮ → *Izinkan setelan terbatas*.
             4. Tekan **Sejajarkan ke kamera**, lalu atur sesukamu.
