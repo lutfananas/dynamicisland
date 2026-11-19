@@ -15,6 +15,11 @@ class NotifService : NotificationListenerService() {
         prefs = Prefs(this)
         connected = true
         MediaTracker.attach(this, ComponentName(this, NotifService::class.java))
+        // Navigasi yang sudah berjalan sebelum layanan tersambung.
+        try {
+            activeNotifications?.firstOrNull { NavTracker.isNav(it) }?.let { NavTracker.update(this, it) }
+        } catch (_: Exception) {
+        }
     }
 
     override fun onListenerDisconnected() {
@@ -28,12 +33,18 @@ class NotifService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         IslandBus.post(IslandEvent.NotifRemoved(sbn.key))
+        NavTracker.remove(sbn.key)
     }
 
     private fun handle(sbn: StatusBarNotification) {
         if (!::prefs.isInitialized) prefs = Prefs(this)
         val n = sbn.notification
         val pkg = sbn.packageName
+        // Navigasi (Maps/Waze) ditangani terpisah sebagai live activity.
+        if (NavTracker.isNav(sbn)) {
+            if (prefs.bool(K.NAV)) NavTracker.update(this, sbn)
+            return
+        }
         if (pkg == packageName || !prefs.bool(K.SHOW_NOTIF)) return
         if (sbn.isOngoing || (n.flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
         if (n.category == Notification.CATEGORY_TRANSPORT) return

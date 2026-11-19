@@ -35,6 +35,8 @@ object K {
     const val HIDE_LANDSCAPE = "hide_landscape"
     const val HIDE_IDLE = "hide_idle"
     const val LOCKSCREEN = "lockscreen"
+    const val NAV = "nav"
+    const val NAV_ALERT = "nav_alert"
 
     // Cahaya saat island kosong diketuk
     const val GLOW_ON = "glow_on"
@@ -85,6 +87,8 @@ object K {
         HIDE_LANDSCAPE to true,
         HIDE_IDLE to false,
         LOCKSCREEN to true,
+        NAV to true,
+        NAV_ALERT to true,
         GLOW_ON to true,
         GLOW_RAINBOW to false,
     )

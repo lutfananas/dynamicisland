@@ -62,7 +62,7 @@ import kotlin.math.roundToInt
 @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
 class IslandWindow(private val svc: AccessibilityService) {
 
-    private enum class Kind { NOTIF, MEDIA, CHARGE, LOW_BATT, RINGER, TIMER, TIMER_DONE, PANEL }
+    private enum class Kind { NOTIF, MEDIA, CHARGE, LOW_BATT, RINGER, TIMER, TIMER_DONE, PANEL, NAV }
 
     private val ctx: Context = svc
     private val wm = svc.getSystemService(WindowManager::class.java)
@@ -408,6 +408,17 @@ class IslandWindow(private val svc: AccessibilityService) {
             IslandEvent.PreviewCharging -> showTemp(Kind.CHARGE, 3500)
             IslandEvent.OpenPanel -> expand(Kind.PANEL)
             IslandEvent.Glow -> startGlow()
+            IslandEvent.NavChanged -> {
+                // Menjelang belokan: perluas sebentar + getar.
+                if (NavTracker.turnSoon && NavTracker.state != null && prefs.bool(K.NAV) &&
+                    prefs.bool(K.NAV_ALERT) && (expandedKind == null || expandedKind == Kind.NAV)
+                ) {
+                    haptic(60)
+                    if (expandedKind == null) showTemp(Kind.NAV, 6000) else updateNavExpanded()
+                } else {
+                    refreshOngoing()
+                }
+            }
             is IslandEvent.EditMode -> setEditMode(e.on)
         }
     }
@@ -447,11 +458,13 @@ class IslandWindow(private val svc: AccessibilityService) {
             }
             Kind.MEDIA -> if (MediaTracker.state == null) collapse() else updateMediaExpanded()
             Kind.TIMER -> if (TimerController.mode == TimerController.Mode.NONE) collapse() else updateTimerExpanded()
+            Kind.NAV -> if (NavTracker.state == null) collapse() else updateNavExpanded()
             else -> {}
         }
     }
 
     private fun compactKind(): Kind? {
+        if (prefs.bool(K.NAV) && NavTracker.state != null) return Kind.NAV
         if (TimerController.mode != TimerController.Mode.NONE) return Kind.TIMER
         val m = MediaTracker.state
         if (prefs.bool(K.SHOW_MEDIA) && m != null && m.playing) return Kind.MEDIA
@@ -710,6 +723,7 @@ class IslandWindow(private val svc: AccessibilityService) {
         mArt = null; mTitle = null; mArtist = null; mPlay = null
         mSeek = null; mPos = null; mDur = null; mViz = null
         tTime = null; tToggle = null
+        nIcon = null; nStep = null; nInstr = null; nStats = null; nProg = null
     }
 
     // ---------------------------------------------------------------- mode ringkas
@@ -748,7 +762,22 @@ class IslandWindow(private val svc: AccessibilityService) {
         cLeftTxt.visibility = View.GONE
         cRightTxt.visibility = View.GONE
         cRightViz.visibility = View.GONE
+        cLeftImg.scaleType = ImageView.ScaleType.CENTER_CROP
         when (k) {
+            Kind.NAV -> {
+                val st = NavTracker.state
+                if (st?.icon != null) {
+                    cLeftImg.visibility = View.VISIBLE
+                    cLeftImg.scaleType = ImageView.ScaleType.FIT_CENTER
+                    cLeftImg.setImageDrawable(st.icon)
+                } else {
+                    cLeftTxt.visibility = View.VISIBLE
+                    cLeftTxt.text = "🧭"
+                }
+                cRightTxt.visibility = View.VISIBLE
+                cRightTxt.text = st?.step ?: st?.remaining ?: st?.minutes ?: ""
+                cRightTxt.setTextColor(accent())
+            }
             Kind.TIMER -> {
                 cLeftTxt.visibility = View.VISIBLE
                 cLeftTxt.text = if (TimerController.mode == TimerController.Mode.COUNTDOWN) "⏲" else "⏱"
@@ -935,6 +964,11 @@ class IslandWindow(private val svc: AccessibilityService) {
         haptic(30)
         when {
             expandedKind == Kind.NOTIF -> { openNotif(); collapse() }
+            expandedKind == Kind.NAV || (expandedKind == null && shownCompact == Kind.NAV) -> {
+                val st = NavTracker.state
+                if (!sendPI(st?.contentIntent)) openPkg(st?.pkg)
+                collapse()
+            }
             mediaVisible() -> {
                 if (!sendPI(MediaTracker.sessionActivity())) openPkg(MediaTracker.state?.pkg)
                 collapse()
@@ -962,6 +996,7 @@ class IslandWindow(private val svc: AccessibilityService) {
         Kind.LOW_BATT -> buildStatus("Baterai lemah", Palette.RED, "$battLevel%", Palette.RED, battLevel)
         Kind.RINGER -> buildRinger()
         Kind.TIMER_DONE -> buildStatus("⏰  Timer selesai", Palette.ORANGE, "OK", Palette.WHITE, -1)
+        Kind.NAV -> buildNav()
     }
 
     private fun tv(text: CharSequence, sp: Float, color: Int = Palette.WHITE, bold: Boolean = false) =
@@ -1163,6 +1198,82 @@ class IslandWindow(private val svc: AccessibilityService) {
         tTime = time; tToggle = toggle
         updateTimerExpanded()
         return col
+    }
+
+    // ---------------------------------------------------------------- navigasi
+
+    private var nIcon: ImageView? = null
+    private var nStep: TextView? = null
+    private var nInstr: TextView? = null
+    private var nStats: TextView? = null
+    private var nProg: android.widget.ProgressBar? = null
+
+    private fun buildNav(): View {
+        val col = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        val row = LinearLayout(ctx).apply { gravity = Gravity.CENTER_VERTICAL }
+        val icon = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = roundBg(Palette.FAINT, dpf(14))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+        row.addView(icon, lpw(dp(52), dp(52)))
+        val tcol = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val step = tv("", 24f, Palette.WHITE, true).apply { fontFeatureSettings = "tnum" }
+        val instr = tv("", 14f, Palette.SECONDARY).apply { maxLines = 2 }
+        tcol.addView(step)
+        tcol.addView(instr)
+        row.addView(tcol, lpw(0, -2, 1f, dp(12)))
+        col.addView(row)
+
+        val prog = android.widget.ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 1000
+            progressTintList = ColorStateList.valueOf(accent())
+            progressBackgroundTintList = ColorStateList.valueOf(0x33FFFFFF)
+        }
+        col.addView(prog, lpw(-1, dp(6), 0f, 0, dp(12)))
+        val stats = tv("", 13f, Palette.WHITE, true).apply { fontFeatureSettings = "tnum" }
+        col.addView(stats, lpw(-1, -2, 0f, 0, dp(8)))
+
+        val btns = LinearLayout(ctx)
+        btns.addView(chip("Buka peta", accent()) {
+            val st = NavTracker.state
+            if (!sendPI(st?.contentIntent)) openPkg(st?.pkg)
+            collapse()
+        })
+        NavTracker.state?.exitAction?.let { a ->
+            btns.addView(chip(a.title?.toString() ?: "Keluar") {
+                try { a.actionIntent?.send() } catch (_: Exception) {}
+                collapse()
+            }, lpw(-2, -2, 0f, dp(8)))
+        }
+        col.addView(btns, lpw(-1, -2, 0f, 0, dp(12)))
+
+        nIcon = icon; nStep = step; nInstr = instr; nStats = stats; nProg = prog
+        updateNavExpanded()
+        return col
+    }
+
+    private fun updateNavExpanded() {
+        val st = NavTracker.state ?: return
+        nIcon?.let { if (st.icon != null) it.setImageDrawable(st.icon) else it.setImageDrawable(appIcon(st.pkg)) }
+        nStep?.text = st.step ?: st.remaining ?: "Navigasi"
+        nInstr?.text = st.instruction
+        nStats?.text = listOfNotNull(
+            st.remaining?.let { "$it lagi" },
+            st.minutes,
+            st.eta?.let { "Tiba $it" },
+        ).joinToString("  ·  ").ifBlank { "Menunggu data rute…" }
+        nProg?.let {
+            if (st.progress != null) {
+                it.visibility = View.VISIBLE
+                it.progress = (st.progress * 1000).toInt()
+            } else {
+                it.visibility = View.GONE
+            }
+        }
     }
 
     private fun updateTimerExpanded() {

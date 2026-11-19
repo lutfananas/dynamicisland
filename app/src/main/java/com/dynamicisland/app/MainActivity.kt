@@ -342,6 +342,8 @@ class MainActivity : Activity() {
         toggle(c, "Balas langsung dari island", K.REPLY, "Untuk aplikasi chat yang mendukung balasan cepat.")
         toggle(c, "Deteksi & salin kode OTP", K.OTP, "Tombol \"Salin kode\" muncul otomatis untuk SMS/notifikasi verifikasi.")
         toggle(c, "Kontrol musik + visualizer", K.SHOW_MEDIA)
+        toggle(c, "Navigasi Maps/Waze (jarak ke tujuan)", K.NAV, "Panah belokan, sisa jarak, waktu & jam tiba dari Google Maps/Waze. Tanpa GPS tambahan.")
+        toggle(c, "Perluas otomatis menjelang belokan", K.NAV_ALERT, "Island membesar & bergetar sekitar 150 m sebelum belokan.")
         toggle(c, "Animasi saat mulai mengisi daya", K.CHARGE_POPUP)
         toggle(c, "Indikator pengisian di mode ringkas", K.CHARGE_COMPACT)
         toggle(c, "Peringatan baterai lemah (20%)", K.LOW_BATT)
@@ -417,6 +419,7 @@ class MainActivity : Activity() {
             },
             "Mengisi daya" to { requireService { IslandBus.post(IslandEvent.PreviewCharging) } },
             "Panel mini apps" to { requireService { IslandBus.post(IslandEvent.OpenPanel) } },
+            "Navigasi" to { requireService { NavTracker.preview(this) } },
         )
     }
 

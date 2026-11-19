@@ -27,6 +27,7 @@ sealed class IslandEvent {
     data object PreviewCharging : IslandEvent()
     data object OpenPanel : IslandEvent()
     data object Glow : IslandEvent()
+    data object NavChanged : IslandEvent()
     data class EditMode(val on: Boolean) : IslandEvent()
 }
 

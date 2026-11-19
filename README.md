@@ -13,6 +13,7 @@ Aplikasi Android native (Kotlin, tanpa library tambahan, APK ±100 KB) yang meng
 | **Kontrol musik** | Mode ringkas menampilkan album art dan visualizer. Saat diperluas: judul, artis, seek bar, prev/play/next. |
 | **Warna dari album** | Warna visualizer dan progress mengikuti warna album art. |
 | **Gestur musik** | Geser kiri/kanan untuk pindah lagu. |
+| **Navigasi (jarak ke tujuan)** | Saat navigasi di Google Maps/Waze: panah belokan, jarak ke belokan berikutnya, sisa jarak, sisa waktu, jam tiba, dan progress perjalanan. Island membesar & bergetar ±150 m sebelum belokan. Tanpa GPS tambahan (data dari aplikasi navigasi). |
 | **Animasi mengisi daya** | Persentase dan ikon baterai muncul saat charger dicolok. Bisa juga tampil terus di mode ringkas. |
 | **Baterai lemah** | Peringatan saat baterai turun ke 20%. |
 | **Mode senyap/getar/dering** | Indikator muncul saat mode suara berubah. |
@@ -94,7 +95,7 @@ app/src/main/java/com/dynamicisland/app/
 
 ## Ide pengembangan berikutnya
 - Dua aktivitas sekaligus (island terbelah, misalnya timer dan musik), seperti iPhone
-- Live Activity untuk navigasi Maps, panggilan telepon, dan rekam layar
+- Live Activity untuk panggilan telepon dan rekam layar
 - Pelacakan pengiriman paket dan skor olahraga dari notifikasi
 - Tema bawaan dan ekspor/impor pengaturan
 
